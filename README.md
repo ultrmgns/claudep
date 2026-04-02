@@ -8,23 +8,34 @@ Built on top of [claude-private](../claude-code-source/claude-private-release/) 
 
 PDF, DOCX, PPTX, and similar formats carry massive visual/layout metadata (fonts, positioning, styles, XML markup) that wastes tokens without adding semantic value. A 214KB PDF becomes a 6.4KB markdown file. An 18KB DOCX binary blob becomes clean readable text. The content is identical — the packaging is what changes.
 
-**Formats converted to Markdown:**
+### Format decision table
 
-| Format | Tool | OCR |
-|---|---|---|
-| PDF (.pdf) | pdftotext | Yes (tesseract) |
-| Word (.docx) | pandoc | Yes (tesseract) |
-| Word legacy (.doc) | libreoffice + pandoc | No |
-| PowerPoint (.pptx) | pandoc | No |
-| PowerPoint legacy (.ppt) | libreoffice + pandoc | No |
-| Rich Text (.rtf) | pandoc | No |
-| OpenDocument Text (.odt) | pandoc | No |
-| OpenDocument Presentation (.odp) | libreoffice + pandoc | No |
-| EPUB (.epub) | pandoc | No |
-| Apple Pages (.pages) | libreoffice + pandoc | No |
-| Apple Keynote (.key) | libreoffice + pandoc | No |
+The core principle: **if a format exists primarily for visual presentation/layout rather than semantic content, convert it. If it carries structured data or is already machine-friendly, leave it alone.**
 
-**Formats left as-is:** XLSX/XLS (structured tabular data with cell relationships and formulas), HTML (already semantic markup), CSV/JSON/XML/YAML (machine-native text).
+| Format | Convert? | Reasoning | Tool |
+|---|---|---|---|
+| **PDF** (.pdf) | **Yes** | Layout coordinates, font metrics, page breaks — pure visual overhead | pdftotext + tesseract OCR |
+| **DOCX** (.docx) | **Yes** | XML zip with massive style/theme/relationship metadata | pandoc + tesseract OCR |
+| **DOC** (.doc) | **Yes** | Legacy binary Word — same content, worse container | libreoffice + pandoc |
+| **RTF** (.rtf) | **Yes** | Rich text formatting commands, all visual | pandoc |
+| **ODT** (.odt) | **Yes** | OpenDocument text — XML + styles, same story as DOCX | pandoc |
+| **PPTX** (.pptx) | **Yes** | Slide layouts, transitions, master slides — content is just bullets/text | pandoc |
+| **PPT** (.ppt) | **Yes** | Legacy PowerPoint, same reasoning | libreoffice + pandoc |
+| **ODP** (.odp) | **Yes** | OpenDocument presentation | libreoffice + pandoc |
+| **EPUB** (.epub) | **Yes** | XHTML + CSS styling for ebook readers | pandoc |
+| **Pages** (.pages) | **Yes** | Apple's proprietary, heavy formatting | libreoffice + pandoc |
+| **Keynote** (.key) | **Yes** | Apple presentation format | libreoffice + pandoc |
+| | | | |
+| **XLSX/XLS** (.xlsx/.xls) | **No** | Structured tabular data — cell relationships, formulas, sheet references. Markdown tables can't represent this faithfully | — |
+| **ODS** (.ods) | **No** | OpenDocument spreadsheet — same as XLSX reasoning | — |
+| **CSV/TSV** (.csv/.tsv) | **No** | Already plain text, minimal overhead | — |
+| **HTML** (.html) | **No** | Already a semantic markup language, close to markdown. Often contains embedded structured data (tables, forms, microdata) that matters | — |
+| **XML** (.xml) | **No** | Structured data format, already text | — |
+| **JSON/YAML** (.json/.yaml) | **No** | Machine-native structured data | — |
+| **LaTeX** (.tex) | **No** | Already text markup; converting loses math notation precision | — |
+| **Plain text** (.txt) | **No** | Already minimal | — |
+| **Markdown** (.md) | **No** | Already the target format | — |
+| **Source code** | **No** | Already text | — |
 
 ## Token Savings Benchmark
 
