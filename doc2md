@@ -6,8 +6,16 @@
 # Requires: poppler-utils (pdftotext), pandoc
 # Optional: tesseract-ocr (for OCR on embedded images in PDF/DOCX)
 #           libreoffice (for legacy formats: .doc, .ppt, .odp, .pages, .key)
+#
+# Exit codes:
+#   0 — conversion succeeded
+#   1 — error (missing dep, bad file, etc.)
+#   2 — PDF skipped: page count exceeds --max-pdf-pages threshold
 
 set -euo pipefail
+
+# --- Defaults ---
+MAX_PDF_PAGES=0  # 0 = no limit
 
 # --- Dependency checks ---
 check_dep() {
@@ -15,24 +23,45 @@ check_dep() {
 }
 
 HAS_PDFTOTEXT=$(check_dep pdftotext && echo 1 || echo 0)
+HAS_PDFINFO=$(check_dep pdfinfo && echo 1 || echo 0)
 HAS_PANDOC=$(check_dep pandoc && echo 1 || echo 0)
 HAS_TESSERACT=$(check_dep tesseract && echo 1 || echo 0)
 HAS_PDFIMAGES=$(check_dep pdfimages && echo 1 || echo 0)
 HAS_LIBREOFFICE=$(check_dep libreoffice && echo 1 || echo 0)
 
-# --- Usage ---
+# --- Parse flags ---
+POSITIONAL=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --max-pdf-pages)
+            MAX_PDF_PAGES="$2"; shift 2 ;;
+        --max-pdf-pages=*)
+            MAX_PDF_PAGES="${1#*=}"; shift ;;
+        --help|-h)
+            echo "Usage: doc2md [options] <input-file> [output-file]"
+            echo ""
+            echo "Converts document files to Markdown."
+            echo "If output-file is omitted, writes to <input-basename>.md"
+            echo ""
+            echo "Options:"
+            echo "  --max-pdf-pages N   Skip PDF conversion if page count > N (exit code 2)."
+            echo "                      0 = no limit (default). Recommended: 5 for claudep."
+            echo ""
+            echo "Dependencies installed:"
+            echo "  pdftotext:    $([ "$HAS_PDFTOTEXT" = 1 ] && echo 'yes' || echo 'NO — apt install poppler-utils')"
+            echo "  pandoc:       $([ "$HAS_PANDOC" = 1 ] && echo 'yes' || echo 'NO — apt install pandoc')"
+            echo "  tesseract:    $([ "$HAS_TESSERACT" = 1 ] && echo 'yes (OCR enabled)' || echo 'no (OCR disabled)')"
+            echo "  pdfimages:    $([ "$HAS_PDFIMAGES" = 1 ] && echo 'yes' || echo 'no')"
+            echo "  libreoffice:  $([ "$HAS_LIBREOFFICE" = 1 ] && echo 'yes' || echo 'no (legacy formats disabled)')"
+            exit 0 ;;
+        *)
+            POSITIONAL+=("$1"); shift ;;
+    esac
+done
+set -- "${POSITIONAL[@]}"
+
 if [[ $# -lt 1 ]]; then
-    echo "Usage: doc2md <input-file> [output-file]"
-    echo ""
-    echo "Converts document files to Markdown."
-    echo "If output-file is omitted, writes to <input-basename>.md"
-    echo ""
-    echo "Dependencies installed:"
-    echo "  pdftotext:    $([ "$HAS_PDFTOTEXT" = 1 ] && echo 'yes' || echo 'NO — apt install poppler-utils')"
-    echo "  pandoc:       $([ "$HAS_PANDOC" = 1 ] && echo 'yes' || echo 'NO — apt install pandoc')"
-    echo "  tesseract:    $([ "$HAS_TESSERACT" = 1 ] && echo 'yes (OCR enabled)' || echo 'no (OCR disabled)')"
-    echo "  pdfimages:    $([ "$HAS_PDFIMAGES" = 1 ] && echo 'yes' || echo 'no')"
-    echo "  libreoffice:  $([ "$HAS_LIBREOFFICE" = 1 ] && echo 'yes' || echo 'no (legacy formats disabled)')"
+    echo "Usage: doc2md [--max-pdf-pages N] <input-file> [output-file]" >&2
     exit 1
 fi
 
@@ -49,7 +78,9 @@ OUTPUT="${2:-$(dirname "$INPUT")/${BASENAME}.md}"
 
 TMPDIR=""
 cleanup() {
-    [[ -n "$TMPDIR" && -d "$TMPDIR" ]] && rm -rf "$TMPDIR"
+    if [[ -n "$TMPDIR" && -d "$TMPDIR" ]]; then
+        rm -rf "$TMPDIR"
+    fi
 }
 trap cleanup EXIT
 
@@ -77,6 +108,15 @@ ocr_images_in_dir() {
     fi
 }
 
+# --- PDF page count check ---
+get_pdf_pages() {
+    if [[ "$HAS_PDFINFO" = 1 ]]; then
+        pdfinfo "$1" 2>/dev/null | grep -i "^Pages:" | awk '{print $2}'
+    else
+        echo ""
+    fi
+}
+
 # --- Conversion by format ---
 case "$EXT_LOWER" in
     pdf)
@@ -84,6 +124,16 @@ case "$EXT_LOWER" in
             echo "Error: pdftotext not installed. Run: sudo apt install poppler-utils" >&2
             exit 1
         fi
+
+        # Check page threshold
+        if [[ "$MAX_PDF_PAGES" -gt 0 ]]; then
+            PAGE_COUNT=$(get_pdf_pages "$INPUT")
+            if [[ -n "$PAGE_COUNT" && "$PAGE_COUNT" -gt "$MAX_PDF_PAGES" ]]; then
+                echo "Skipped: $INPUT has $PAGE_COUNT pages (threshold: $MAX_PDF_PAGES). Native API ingestion is more efficient for large PDFs." >&2
+                exit 2
+            fi
+        fi
+
         pdftotext -layout -enc UTF-8 "$INPUT" "$OUTPUT.tmp" 2>/dev/null
         mv "$OUTPUT.tmp" "$OUTPUT"
 

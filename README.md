@@ -70,7 +70,7 @@ Tested 2026-04-03 against `claude-private` (no conversion). Same prompt for each
 
 **Large PDFs (10+ pages) are currently worse.** The Anthropic API handles PDFs natively as document blocks — one efficient chunk. The converted markdown (4,379 lines for 19 pages) exceeds the Read tool's 2,000-line default, requiring multiple round trips. Each turn re-sends the ~15K system prompt, causing token inflation.
 
-**Recommendation:** Convert PDFs under ~5 pages. For larger PDFs, native API ingestion is more efficient until single-shot markdown injection is implemented. A future version of claudep will add a page-count threshold to make this decision automatically.
+**Recommendation implemented:** claudep now automatically checks PDF page count before converting. PDFs with 5 or fewer pages get converted to markdown. PDFs with more than 5 pages skip conversion and use native API document ingestion instead. The threshold is configurable via `CLAUDEP_MAX_PDF_PAGES` environment variable or `doc2md --max-pdf-pages N`.
 
 ### File size compression
 
@@ -117,9 +117,13 @@ claudep -p "Read /path/to/report.pdf and summarize the key findings"
 # Skip conversion
 claudep --no-convert -p "Read /path/to/report.pdf as raw"
 
+# Override PDF page threshold (default: 5)
+CLAUDEP_MAX_PDF_PAGES=10 claudep -p "Read /path/to/big-report.pdf and summarize"
+
 # Standalone converter
-doc2md report.pdf                    # -> report.md
-doc2md presentation.pptx output.md   # -> output.md
+doc2md report.pdf                         # -> report.md
+doc2md presentation.pptx output.md        # -> output.md
+doc2md --max-pdf-pages 10 big.pdf out.md  # custom threshold
 ```
 
 ## Requires

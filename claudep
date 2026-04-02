@@ -21,6 +21,11 @@ export OTEL_TRACES_EXPORTER=none
 # Document extensions to auto-convert
 DOC_PATTERN='\.(pdf|docx|doc|rtf|odt|pptx|ppt|odp|epub|pages|key)$'
 
+# PDF page threshold: PDFs with more pages than this skip conversion
+# and use native API ingestion instead (more efficient for large PDFs).
+# Set to 0 to disable the threshold (always convert).
+CLAUDEP_MAX_PDF_PAGES="${CLAUDEP_MAX_PDF_PAGES:-5}"
+
 # Locate the doc2md converter
 DOC2MD="$SCRIPT_DIR/doc2md"
 if [[ ! -x "$DOC2MD" ]]; then
@@ -97,9 +102,13 @@ if [[ -n "$PROMPT_TEXT" && "$CONVERT_MODE" -eq 1 && -x "$DOC2MD" ]]; then
             MD_FILE="$TMPDIR/${NAME}.md"
 
             echo "[claudep] Converting: $expanded" >&2
-            if "$DOC2MD" "$expanded" "$MD_FILE" >&2 2>&1; then
+            "$DOC2MD" --max-pdf-pages "$CLAUDEP_MAX_PDF_PAGES" "$expanded" "$MD_FILE" >&2 2>&1
+            DOC2MD_EXIT=$?
+            if [[ $DOC2MD_EXIT -eq 0 ]]; then
                 FINAL_PROMPT="${FINAL_PROMPT//$filepath/$MD_FILE}"
                 CONVERTED_FILES+=("$MD_FILE")
+            elif [[ $DOC2MD_EXIT -eq 2 ]]; then
+                echo "[claudep] Large PDF — using native API ingestion (faster for 5+ pages)" >&2
             else
                 echo "[claudep] Warning: conversion failed for $expanded, using original" >&2
             fi
