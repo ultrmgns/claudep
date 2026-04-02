@@ -70,7 +70,23 @@ Tested 2026-04-03 against `claude-private` (no conversion). Same prompt for each
 
 **Large PDFs (10+ pages) are currently worse.** The Anthropic API handles PDFs natively as document blocks — one efficient chunk. The converted markdown (4,379 lines for 19 pages) exceeds the Read tool's 2,000-line default, requiring multiple round trips. Each turn re-sends the ~15K system prompt, causing token inflation.
 
-**Recommendation implemented:** claudep now automatically checks PDF page count before converting. PDFs with 5 or fewer pages get converted to markdown. PDFs with more than 5 pages skip conversion and use native API document ingestion instead. The threshold is configurable via `CLAUDEP_MAX_PDF_PAGES` environment variable or `doc2md --max-pdf-pages N`.
+### Why the 5-page PDF threshold
+
+claudep automatically skips markdown conversion for PDFs over 5 pages. This is based on the benchmark data above, but the real-world motivation is batch processing.
+
+Consider processing a folder of 1-3 page documents — payslips, invoices, support tickets, compliance forms, receipts, shipping labels. These are the most common PDFs in enterprise workflows: short, structured, and processed in volume. A single payslip PDF is ~100-300KB of layout data wrapping ~2KB of actual text (name, amounts, dates). At scale, the savings compound fast:
+
+| Scenario | Files | Raw PDF cost | claudep cost | Saved |
+|---|---|---|---|---|
+| 100 payslips (1 pg each) | 100 | ~$13.00 | ~$5.70 | **~$7.30** |
+| 500 support tickets (2 pg) | 500 | ~$65.00 | ~$29.00 | **~$36.00** |
+| 50 compliance forms (3 pg) | 50 | ~$6.50 | ~$2.90 | **~$3.60** |
+
+_(Estimates based on the 2-page PDF benchmark: $0.132 raw vs $0.058 converted per file.)_
+
+For large PDFs (research papers, legal contracts, annual reports), the API's native document block handling is more efficient because it sends the entire PDF in one shot. Markdown conversion of a 20+ page document produces thousands of lines that require multiple Read tool calls, each re-sending the ~15K system prompt — the multi-turn overhead erases the savings.
+
+The threshold is configurable: `CLAUDEP_MAX_PDF_PAGES=10` or `doc2md --max-pdf-pages 10`.
 
 ### File size compression
 
@@ -92,17 +108,12 @@ chmod +x claudep-1.0.0.run
 ./claudep-1.0.0.run
 ```
 
-### Dependencies
+The installer checks for required dependencies (`poppler-utils`, `pandoc`) and warns if they're missing. It also detects optional tools (`tesseract-ocr` for OCR, `libreoffice` for legacy formats) and reports what's enabled. If anything is missing, install it:
 
-**Required:**
 ```bash
-sudo apt install poppler-utils pandoc
-```
-
-**Optional:**
-```bash
-sudo apt install tesseract-ocr   # OCR for embedded images in PDF/DOCX
-sudo apt install libreoffice      # Legacy formats (.doc, .ppt, .odp, .pages, .key)
+sudo apt install poppler-utils pandoc            # required
+sudo apt install tesseract-ocr                   # optional: OCR for embedded images in PDF/DOCX
+sudo apt install libreoffice                     # optional: legacy formats (.doc, .ppt, .odp, .pages, .key)
 ```
 
 ## Usage
