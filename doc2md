@@ -1,0 +1,180 @@
+#!/bin/bash
+# doc2md — Convert documents to Markdown for token-efficient AI ingestion
+# Part of claudep (Claude Private Edition with document conversion)
+#
+# Supports: PDF, DOCX, DOC, RTF, ODT, PPTX, PPT, ODP, EPUB, Pages, Keynote
+# Requires: poppler-utils (pdftotext), pandoc
+# Optional: tesseract-ocr (for OCR on embedded images in PDF/DOCX)
+#           libreoffice (for legacy formats: .doc, .ppt, .odp, .pages, .key)
+
+set -euo pipefail
+
+# --- Dependency checks ---
+check_dep() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+HAS_PDFTOTEXT=$(check_dep pdftotext && echo 1 || echo 0)
+HAS_PANDOC=$(check_dep pandoc && echo 1 || echo 0)
+HAS_TESSERACT=$(check_dep tesseract && echo 1 || echo 0)
+HAS_PDFIMAGES=$(check_dep pdfimages && echo 1 || echo 0)
+HAS_LIBREOFFICE=$(check_dep libreoffice && echo 1 || echo 0)
+
+# --- Usage ---
+if [[ $# -lt 1 ]]; then
+    echo "Usage: doc2md <input-file> [output-file]"
+    echo ""
+    echo "Converts document files to Markdown."
+    echo "If output-file is omitted, writes to <input-basename>.md"
+    echo ""
+    echo "Dependencies installed:"
+    echo "  pdftotext:    $([ "$HAS_PDFTOTEXT" = 1 ] && echo 'yes' || echo 'NO — apt install poppler-utils')"
+    echo "  pandoc:       $([ "$HAS_PANDOC" = 1 ] && echo 'yes' || echo 'NO — apt install pandoc')"
+    echo "  tesseract:    $([ "$HAS_TESSERACT" = 1 ] && echo 'yes (OCR enabled)' || echo 'no (OCR disabled)')"
+    echo "  pdfimages:    $([ "$HAS_PDFIMAGES" = 1 ] && echo 'yes' || echo 'no')"
+    echo "  libreoffice:  $([ "$HAS_LIBREOFFICE" = 1 ] && echo 'yes' || echo 'no (legacy formats disabled)')"
+    exit 1
+fi
+
+INPUT="$1"
+if [[ ! -f "$INPUT" ]]; then
+    echo "Error: File not found: $INPUT" >&2
+    exit 1
+fi
+
+EXT="${INPUT##*.}"
+EXT_LOWER="$(echo "$EXT" | tr '[:upper:]' '[:lower:]')"
+BASENAME="$(basename "$INPUT" ".$EXT")"
+OUTPUT="${2:-$(dirname "$INPUT")/${BASENAME}.md}"
+
+TMPDIR=""
+cleanup() {
+    [[ -n "$TMPDIR" && -d "$TMPDIR" ]] && rm -rf "$TMPDIR"
+}
+trap cleanup EXIT
+
+# --- OCR helper for embedded images ---
+ocr_images_in_dir() {
+    local dir="$1"
+    local ocr_text=""
+    local count=0
+
+    if [[ "$HAS_TESSERACT" != 1 ]]; then return; fi
+
+    for img in "$dir"/*.{jpg,jpeg,png,ppm,pbm,tif,tiff} 2>/dev/null; do
+        [[ -f "$img" ]] || continue
+        count=$((count + 1))
+        [[ $count -gt 20 ]] && break
+        local result
+        result=$(tesseract "$img" stdout -l eng 2>/dev/null) || true
+        if [[ -n "$result" ]]; then
+            ocr_text="${ocr_text}${result}\n\n"
+        fi
+    done
+
+    if [[ -n "$ocr_text" ]]; then
+        echo -e "\n\n---\n\n## OCR from embedded images\n\n${ocr_text}"
+    fi
+}
+
+# --- Conversion by format ---
+case "$EXT_LOWER" in
+    pdf)
+        if [[ "$HAS_PDFTOTEXT" != 1 ]]; then
+            echo "Error: pdftotext not installed. Run: sudo apt install poppler-utils" >&2
+            exit 1
+        fi
+        pdftotext -layout -enc UTF-8 "$INPUT" "$OUTPUT.tmp" 2>/dev/null
+        mv "$OUTPUT.tmp" "$OUTPUT"
+
+        # OCR embedded images
+        if [[ "$HAS_PDFIMAGES" = 1 && "$HAS_TESSERACT" = 1 ]]; then
+            TMPDIR=$(mktemp -d)
+            pdfimages -j "$INPUT" "$TMPDIR/img" 2>/dev/null || true
+            ocr_result=$(ocr_images_in_dir "$TMPDIR")
+            if [[ -n "$ocr_result" ]]; then
+                echo "$ocr_result" >> "$OUTPUT"
+            fi
+        fi
+        ;;
+
+    docx)
+        if [[ "$HAS_PANDOC" != 1 ]]; then
+            echo "Error: pandoc not installed. Run: sudo apt install pandoc" >&2
+            exit 1
+        fi
+        if [[ "$HAS_TESSERACT" = 1 ]]; then
+            TMPDIR=$(mktemp -d)
+            pandoc -f docx -t markdown --wrap=none --strip-comments --extract-media "$TMPDIR" "$INPUT" -o "$OUTPUT" 2>/dev/null
+            # OCR extracted media
+            if [[ -d "$TMPDIR/media" ]]; then
+                ocr_result=$(ocr_images_in_dir "$TMPDIR/media")
+                if [[ -n "$ocr_result" ]]; then
+                    echo "$ocr_result" >> "$OUTPUT"
+                fi
+            fi
+        else
+            pandoc -f docx -t markdown --wrap=none --strip-comments "$INPUT" -o "$OUTPUT" 2>/dev/null
+        fi
+        ;;
+
+    rtf)
+        [[ "$HAS_PANDOC" != 1 ]] && { echo "Error: pandoc required" >&2; exit 1; }
+        pandoc -f rtf -t markdown --wrap=none --strip-comments "$INPUT" -o "$OUTPUT"
+        ;;
+
+    odt)
+        [[ "$HAS_PANDOC" != 1 ]] && { echo "Error: pandoc required" >&2; exit 1; }
+        pandoc -f odt -t markdown --wrap=none --strip-comments "$INPUT" -o "$OUTPUT"
+        ;;
+
+    pptx)
+        [[ "$HAS_PANDOC" != 1 ]] && { echo "Error: pandoc required" >&2; exit 1; }
+        pandoc -f pptx -t markdown --wrap=none --strip-comments "$INPUT" -o "$OUTPUT"
+        ;;
+
+    epub)
+        [[ "$HAS_PANDOC" != 1 ]] && { echo "Error: pandoc required" >&2; exit 1; }
+        pandoc -f epub -t markdown --wrap=none --strip-comments "$INPUT" -o "$OUTPUT"
+        ;;
+
+    doc|ppt|odp|pages|key)
+        if [[ "$HAS_LIBREOFFICE" != 1 ]]; then
+            echo "Error: LibreOffice required for .$EXT_LOWER files. Run: sudo apt install libreoffice" >&2
+            exit 1
+        fi
+        [[ "$HAS_PANDOC" != 1 ]] && { echo "Error: pandoc required" >&2; exit 1; }
+
+        # Map legacy format to modern target
+        case "$EXT_LOWER" in
+            doc|pages) TARGET_EXT="docx"; PANDOC_FMT="docx" ;;
+            ppt|odp|key) TARGET_EXT="pptx"; PANDOC_FMT="pptx" ;;
+        esac
+
+        TMPDIR=$(mktemp -d)
+        libreoffice --headless --convert-to "$TARGET_EXT" --outdir "$TMPDIR" "$INPUT" >/dev/null 2>&1
+        CONVERTED=$(find "$TMPDIR" -name "*.$TARGET_EXT" | head -1)
+        if [[ -z "$CONVERTED" ]]; then
+            echo "Error: LibreOffice conversion produced no output" >&2
+            exit 1
+        fi
+        pandoc -f "$PANDOC_FMT" -t markdown --wrap=none --strip-comments "$CONVERTED" -o "$OUTPUT"
+        ;;
+
+    *)
+        echo "Error: Unsupported format: .$EXT_LOWER" >&2
+        echo "Supported: pdf, docx, doc, rtf, odt, pptx, ppt, odp, epub, pages, key" >&2
+        exit 1
+        ;;
+esac
+
+# Stats
+INPUT_SIZE=$(stat -c%s "$INPUT" 2>/dev/null || stat -f%z "$INPUT")
+OUTPUT_SIZE=$(stat -c%s "$OUTPUT" 2>/dev/null || stat -f%z "$OUTPUT")
+OUTPUT_LINES=$(wc -l < "$OUTPUT")
+RATIO=$(echo "scale=1; $INPUT_SIZE / $OUTPUT_SIZE" | bc 2>/dev/null || echo "?")
+
+echo "Converted: $INPUT -> $OUTPUT"
+echo "  Source: $(numfmt --to=iec $INPUT_SIZE 2>/dev/null || echo "${INPUT_SIZE} bytes") ($EXT_LOWER)"
+echo "  Output: $(numfmt --to=iec $OUTPUT_SIZE 2>/dev/null || echo "${OUTPUT_SIZE} bytes") markdown, ${OUTPUT_LINES} lines"
+echo "  Ratio:  ${RATIO}x smaller"

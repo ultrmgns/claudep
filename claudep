@@ -1,0 +1,128 @@
+#!/bin/bash
+# claudep — Claude Private Edition with automatic document-to-markdown conversion
+#
+# Drop-in replacement for claude / claude-private. When used with -p and a
+# prompt that references document files (PDF, DOCX, PPTX, etc.), claudep
+# automatically converts them to markdown first — saving tokens and cost.
+#
+# No telemetry. Token-efficient document ingestion.
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Telemetry kill switches (inherited from claude-private)
+export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+export DISABLE_TELEMETRY=1
+export DISABLE_AUTOUPDATER=1
+export CLAUDE_CODE_ENABLE_TELEMETRY=0
+export OTEL_METRICS_EXPORTER=none
+export OTEL_LOGS_EXPORTER=none
+export OTEL_TRACES_EXPORTER=none
+
+# Document extensions to auto-convert
+DOC_PATTERN='\.(pdf|docx|doc|rtf|odt|pptx|ppt|odp|epub|pages|key)$'
+
+# Locate the doc2md converter
+DOC2MD="$SCRIPT_DIR/doc2md"
+if [[ ! -x "$DOC2MD" ]]; then
+    DOC2MD="$(dirname "$SCRIPT_DIR")/doc2md"
+fi
+
+# Locate the base binary (claude-notelemetry from claude-private install)
+CLAUDE_BIN=""
+for candidate in \
+    "$HOME/.local/bin/claude-notelemetry" \
+    "$SCRIPT_DIR/claude-notelemetry" \
+    "$(which claude-notelemetry 2>/dev/null)"; do
+    if [[ -x "$candidate" ]]; then
+        CLAUDE_BIN="$candidate"
+        break
+    fi
+done
+
+if [[ -z "$CLAUDE_BIN" ]]; then
+    echo "Error: claude-notelemetry binary not found." >&2
+    echo "Install claude-private first, or place claude-notelemetry in PATH." >&2
+    exit 1
+fi
+
+# --- Auto-convert documents referenced in -p prompts ---
+# Scan arguments for -p/--print flag and look for file paths in the prompt
+CONVERTED_FILES=()
+TMPDIR=""
+NEW_ARGS=()
+CONVERT_MODE=1  # Auto-convert by default
+PROMPT_TEXT=""
+NEXT_IS_PROMPT=0
+
+for arg in "$@"; do
+    if [[ "$arg" == "--no-convert" ]]; then
+        CONVERT_MODE=0
+        continue
+    fi
+
+    if [[ $NEXT_IS_PROMPT -eq 1 ]]; then
+        PROMPT_TEXT="$arg"
+        NEXT_IS_PROMPT=0
+        # Don't add yet — we'll process and re-add after
+        continue
+    fi
+
+    if [[ "$arg" == "-p" || "$arg" == "--print" ]]; then
+        NEXT_IS_PROMPT=1
+        NEW_ARGS+=("$arg")
+        continue
+    fi
+
+    NEW_ARGS+=("$arg")
+done
+
+# If we have a prompt and conversion is enabled, scan for document paths
+if [[ -n "$PROMPT_TEXT" && "$CONVERT_MODE" -eq 1 && -x "$DOC2MD" ]]; then
+    MODIFIED_PROMPT="$PROMPT_TEXT"
+
+    # Extract potential file paths from the prompt (quoted or unquoted)
+    while IFS= read -r filepath; do
+        [[ -z "$filepath" ]] && continue
+        # Expand ~ and resolve
+        expanded="${filepath/#\~/$HOME}"
+
+        if [[ -f "$expanded" ]] && echo "$expanded" | grep -qiE "$DOC_PATTERN"; then
+            # Create temp dir if needed
+            if [[ -z "$TMPDIR" ]]; then
+                TMPDIR=$(mktemp -d /tmp/claudep.XXXXXX)
+            fi
+
+            BASENAME="$(basename "$expanded")"
+            EXT="${BASENAME##*.}"
+            NAME="${BASENAME%.*}"
+            MD_FILE="$TMPDIR/${NAME}.md"
+
+            echo "[claudep] Converting: $expanded" >&2
+            if "$DOC2MD" "$expanded" "$MD_FILE" >&2 2>&1; then
+                # Replace the file path in the prompt with the markdown version
+                MODIFIED_PROMPT="${MODIFIED_PROMPT//$filepath/$MD_FILE}"
+                CONVERTED_FILES+=("$MD_FILE")
+            else
+                echo "[claudep] Warning: conversion failed for $expanded, using original" >&2
+            fi
+        fi
+    done < <(grep -oE '(/[^ "]+\.(pdf|docx|doc|rtf|odt|pptx|ppt|odp|epub|pages|key)|~/[^ "]+\.(pdf|docx|doc|rtf|odt|pptx|ppt|odp|epub|pages|key))' <<< "$PROMPT_TEXT" 2>/dev/null)
+
+    NEW_ARGS+=("$MODIFIED_PROMPT")
+else
+    # No conversion needed, pass prompt as-is
+    if [[ -n "$PROMPT_TEXT" ]]; then
+        NEW_ARGS+=("$PROMPT_TEXT")
+    fi
+fi
+
+# Cleanup on exit
+cleanup() {
+    if [[ -n "$TMPDIR" && -d "$TMPDIR" ]]; then
+        rm -rf "$TMPDIR"
+    fi
+}
+trap cleanup EXIT
+
+# Run claude
+exec "$CLAUDE_BIN" "${NEW_ARGS[@]}"
