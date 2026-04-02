@@ -61,7 +61,7 @@ ocr_images_in_dir() {
 
     if [[ "$HAS_TESSERACT" != 1 ]]; then return; fi
 
-    for img in "$dir"/*.{jpg,jpeg,png,ppm,pbm,tif,tiff} 2>/dev/null; do
+    for img in $(find "$dir" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.ppm' -o -iname '*.pbm' -o -iname '*.tif' -o -iname '*.tiff' \) 2>/dev/null | sort); do
         [[ -f "$img" ]] || continue
         count=$((count + 1))
         [[ $count -gt 20 ]] && break

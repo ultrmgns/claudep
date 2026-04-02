@@ -52,6 +52,7 @@ TMPDIR=""
 NEW_ARGS=()
 CONVERT_MODE=1  # Auto-convert by default
 PROMPT_TEXT=""
+PROMPT_INDEX=-1  # Position in NEW_ARGS where prompt placeholder is
 NEXT_IS_PROMPT=0
 
 for arg in "$@"; do
@@ -63,7 +64,9 @@ for arg in "$@"; do
     if [[ $NEXT_IS_PROMPT -eq 1 ]]; then
         PROMPT_TEXT="$arg"
         NEXT_IS_PROMPT=0
-        # Don't add yet — we'll process and re-add after
+        # Insert placeholder — will be replaced with final prompt
+        PROMPT_INDEX=${#NEW_ARGS[@]}
+        NEW_ARGS+=("__PROMPT_PLACEHOLDER__")
         continue
     fi
 
@@ -76,18 +79,14 @@ for arg in "$@"; do
     NEW_ARGS+=("$arg")
 done
 
-# If we have a prompt and conversion is enabled, scan for document paths
+# Process prompt: scan for document paths and convert
+FINAL_PROMPT="$PROMPT_TEXT"
 if [[ -n "$PROMPT_TEXT" && "$CONVERT_MODE" -eq 1 && -x "$DOC2MD" ]]; then
-    MODIFIED_PROMPT="$PROMPT_TEXT"
-
-    # Extract potential file paths from the prompt (quoted or unquoted)
     while IFS= read -r filepath; do
         [[ -z "$filepath" ]] && continue
-        # Expand ~ and resolve
         expanded="${filepath/#\~/$HOME}"
 
         if [[ -f "$expanded" ]] && echo "$expanded" | grep -qiE "$DOC_PATTERN"; then
-            # Create temp dir if needed
             if [[ -z "$TMPDIR" ]]; then
                 TMPDIR=$(mktemp -d /tmp/claudep.XXXXXX)
             fi
@@ -99,21 +98,33 @@ if [[ -n "$PROMPT_TEXT" && "$CONVERT_MODE" -eq 1 && -x "$DOC2MD" ]]; then
 
             echo "[claudep] Converting: $expanded" >&2
             if "$DOC2MD" "$expanded" "$MD_FILE" >&2 2>&1; then
-                # Replace the file path in the prompt with the markdown version
-                MODIFIED_PROMPT="${MODIFIED_PROMPT//$filepath/$MD_FILE}"
+                FINAL_PROMPT="${FINAL_PROMPT//$filepath/$MD_FILE}"
                 CONVERTED_FILES+=("$MD_FILE")
             else
                 echo "[claudep] Warning: conversion failed for $expanded, using original" >&2
             fi
         fi
-    done < <(grep -oE '(/[^ "]+\.(pdf|docx|doc|rtf|odt|pptx|ppt|odp|epub|pages|key)|~/[^ "]+\.(pdf|docx|doc|rtf|odt|pptx|ppt|odp|epub|pages|key))' <<< "$PROMPT_TEXT" 2>/dev/null)
+    done < <(python3 -c "
+import re, sys
+text = sys.argv[1]
+# Match file paths: /path/to/file.ext or ~/path/to/file.ext
+# Handles spaces in filenames when quoted or between path separators
+exts = r'\.(pdf|docx|doc|rtf|odt|pptx|ppt|odp|epub|pages|key)'
+# Try quoted paths first (handles spaces)
+for m in re.finditer(r'\"([^\"]+' + exts + r')\"', text):
+    print(m.group(1))
+# Then unquoted absolute paths (no spaces)
+for m in re.finditer(r'(?<![\"a-zA-Z])(/[^ \"]+' + exts + r')', text):
+    print(m.group(1))
+# Then ~/paths
+for m in re.finditer(r'(~/[^ \"]+' + exts + r')', text):
+    print(m.group(1))
+" "$PROMPT_TEXT" 2>/dev/null | sort -u)
+fi
 
-    NEW_ARGS+=("$MODIFIED_PROMPT")
-else
-    # No conversion needed, pass prompt as-is
-    if [[ -n "$PROMPT_TEXT" ]]; then
-        NEW_ARGS+=("$PROMPT_TEXT")
-    fi
+# Replace the placeholder with the final prompt
+if [[ $PROMPT_INDEX -ge 0 ]]; then
+    NEW_ARGS[$PROMPT_INDEX]="$FINAL_PROMPT"
 fi
 
 # Cleanup on exit

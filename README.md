@@ -6,7 +6,7 @@ Built on top of [claude-private](../claude-code-source/claude-private-release/) 
 
 ## Why
 
-PDF, DOCX, PPTX, and similar formats carry massive visual/layout metadata (fonts, positioning, styles, XML markup) that wastes tokens without adding semantic value. A 6MB PDF that becomes a 50KB markdown file delivers the same content at a fraction of the token cost.
+PDF, DOCX, PPTX, and similar formats carry massive visual/layout metadata (fonts, positioning, styles, XML markup) that wastes tokens without adding semantic value. A 214KB PDF becomes a 6.4KB markdown file. An 18KB DOCX binary blob becomes clean readable text. The content is identical — the packaging is what changes.
 
 **Formats converted to Markdown:**
 
@@ -24,7 +24,50 @@ PDF, DOCX, PPTX, and similar formats carry massive visual/layout metadata (fonts
 | Apple Pages (.pages) | libreoffice + pandoc | No |
 | Apple Keynote (.key) | libreoffice + pandoc | No |
 
-**Formats left as-is:** XLSX/XLS (structured data), HTML (already markup), CSV/JSON/XML/YAML (machine-native).
+**Formats left as-is:** XLSX/XLS (structured tabular data with cell relationships and formulas), HTML (already semantic markup), CSV/JSON/XML/YAML (machine-native text).
+
+## Token Savings Benchmark
+
+Tested 2026-04-03 against `claude-private` (no conversion). Same prompt for each pair: _"Read the file and give me exactly 3 bullet points summarizing the key findings."_ Both use `--allowedTools 'Read,Bash'` in headless `-p` mode.
+
+### Results
+
+| Test | Method | Total Input Tokens | Output | Turns | Cost | Time |
+|---|---|---:|---:|---:|---:|---:|
+| A | claude-private + DOCX (raw) | 67,947 | 758 | 4 | $0.0775 | 31.7s |
+| B | **claudep** + DOCX (→ markdown) | 35,546 | 297 | 2 | $0.0745 | 9.7s |
+| | | | | | | |
+| C | claude-private + PDF 2pg (raw) | 34,194 | 342 | 3 | $0.1318 | 12.5s |
+| D | **claudep** + PDF 2pg (→ markdown) | 33,148 | 232 | 2 | $0.0578 | 8.1s |
+| | | | | | | |
+| E | claude-private + PDF 19pg (raw) | 56,521 | 478 | 3 | $0.2358 | 23.0s |
+| F | **claudep** + PDF 19pg (→ markdown) | 228,236 | 1,313 | 10 | $0.2930 | 39.0s |
+
+### Summary
+
+| Document | Tokens | Cost | Time | Turns |
+|---|---|---|---|---|
+| **DOCX** (18 KB) | **-47.7%** | -3.9% | **-69.3%** | 4 → 2 |
+| **PDF 2 pages** (214 KB) | -3.1% | **-56.1%** | **-35.8%** | 3 → 2 |
+| **PDF 19 pages** (6.3 MB) | +303.8% | +24.3% | +69.4% | 3 → 10 |
+
+### Analysis
+
+**DOCX is a clear win across the board.** Claude-private can't read DOCX natively — it resorts to spawning Python/Bash to extract text, burning extra turns and tokens on tool overhead. Claudep feeds clean markdown directly: half the turns, half the tokens, 3x faster.
+
+**Small PDFs (1-5 pages) are a strong win.** The 2-page GDPR document went from $0.13 to $0.06 — a 56% cost reduction. The markdown (134 lines) fits in a single Read call, avoiding multi-turn overhead entirely.
+
+**Large PDFs (10+ pages) are currently worse.** The Anthropic API handles PDFs natively as document blocks — one efficient chunk. The converted markdown (4,379 lines for 19 pages) exceeds the Read tool's 2,000-line default, requiring multiple round trips. Each turn re-sends the ~15K system prompt, causing token inflation.
+
+**Recommendation:** Convert PDFs under ~5 pages. For larger PDFs, native API ingestion is more efficient until single-shot markdown injection is implemented. A future version of claudep will add a page-count threshold to make this decision automatically.
+
+### File size compression
+
+| File | Source | Markdown | Ratio |
+|---|---|---|---|
+| GDPR_DOC_2.7.pdf (2 pages) | 214 KB | 6.4 KB | **33.8x** smaller |
+| openclaw disaster (19 pages) | 6.3 MB | 232 KB | **27.5x** smaller |
+| openclaw-viability-report.docx | 18 KB | 19 KB | ~1x (small doc, mostly text) |
 
 ## Install
 
