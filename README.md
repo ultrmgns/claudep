@@ -19,7 +19,7 @@ Then just use it:
 claudep
 ```
 
-That's it. Everything works the same as `claude` — but when you ask it to read a PDF, DOCX, PPTX, or any other supported document, it automatically converts it to Markdown before ingestion, saving tokens and cost. You don't need to do anything different.
+That's it. Everything works the same as `claude` - but when you ask it to read a PDF, DOCX, PPTX, or any other supported document, it automatically converts it to Markdown before ingestion, saving tokens and cost. You don't need to do anything different.
 
 The integration added a couple of tools that can also be used externally if you want to pre-convert documents yourself:
 
@@ -30,7 +30,7 @@ doc2md presentation.pptx output.md   # -> output.md
 
 ## How it works
 
-The conversion logic is built into the Read tool at the source level (`FileReadTool.ts`). When the tool detects a document file by extension, it runs it through a conversion pipeline (`documentConverter.ts`) before returning the content — the model receives clean Markdown text instead of binary data or base64-encoded blobs.
+The conversion logic is built into the Read tool at the source level (`FileReadTool.ts`). When the tool detects a document file by extension, it runs it through a conversion pipeline (`documentConverter.ts`) before returning the content - the model receives clean Markdown text instead of binary data or base64-encoded blobs.
 
 The flow inside the binary:
 
@@ -49,17 +49,17 @@ Three files modified, one created:
 
 | File | Change |
 |---|---|
-| `src/utils/documentConverter.ts` | **New.** Conversion engine — routes formats to the right CLI tool, handles OCR, temp file cleanup, error reporting |
+| `src/utils/documentConverter.ts` | **New.** Conversion engine - routes formats to the right CLI tool, handles OCR, temp file cleanup, error reporting |
 | `src/tools/FileReadTool/FileReadTool.ts` | Replaced the PDF base64 pipeline with a unified document conversion branch. Added binary extension bypass for convertible formats |
 | `src/tools/FileReadTool/prompt.ts` | Updated the Read tool's system prompt to document supported document formats |
-| `src/constants/files.ts` | No changes needed — the binary extension allowlist is bypassed at the call site |
+| `src/constants/files.ts` | No changes needed - the binary extension allowlist is bypassed at the call site |
 
 The conversion engine calls standard system tools internally via `execFileNoThrow()`:
 
 | Format | Internal tool | OCR |
 |---|---|---|
-| PDF (.pdf) | `pdftotext` (poppler-utils) | Yes — `pdfimages` + `tesseract` |
-| DOCX (.docx) | `pandoc` | Yes — `--extract-media` + `tesseract` |
+| PDF (.pdf) | `pdftotext` (poppler-utils) | Yes - `pdfimages` + `tesseract` |
+| DOCX (.docx) | `pandoc` | Yes - `--extract-media` + `tesseract` |
 | RTF, ODT, PPTX, EPUB | `pandoc` | No |
 | DOC, PPT, ODP, Pages, Keynote | `libreoffice --headless` → `pandoc` | No |
 
@@ -69,7 +69,7 @@ These are system packages, not bundled libraries. The installer checks for them 
 
 | Format | Why |
 |---|---|
-| **XLSX/XLS/ODS** | Structured tabular data — cell relationships, formulas, sheet references. Markdown tables can't represent this faithfully |
+| **XLSX/XLS/ODS** | Structured tabular data - cell relationships, formulas, sheet references. Markdown tables can't represent this faithfully |
 | **HTML** | Already a semantic markup language, close to markdown. Often contains embedded structured data (tables, forms, microdata) that matters |
 | **CSV/TSV** | Already plain text, minimal overhead |
 | **JSON/XML/YAML** | Machine-native structured data |
@@ -136,6 +136,4 @@ sudo apt install libreoffice                     # optional: .doc, .ppt, .odp, .
 
 ## Built on
 
-- [claude-private](../claude-code-source/claude-private-release/) — Claude Code CLI with all telemetry removed
-- Claude Code CLI v2.1.88 by [Anthropic](https://anthropic.com)
-- Linux x86_64
+- [claude-private](https://github.com/ultrmgns/claude-private) - Claude Code CLI with all telemetry removed
