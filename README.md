@@ -124,7 +124,7 @@ Tested 2026-04-03 against `claude-private` (no conversion). Same prompt, same al
 | openclaw disaster (19 pages) | 6.3 MB | 232 KB | **27.5x** smaller |
 | openclaw-viability-report.docx | 18 KB | 19 KB | ~1x (small doc, mostly text) |
 
-![scr22](https://github.com/user-attachments/assets/83676a62-4974-4920-b45d-808cd71985eb)
+![scr1](https://github.com/user-attachments/assets/64776174-ca2b-46bb-b6ed-4d1b1c6b0d8b)
 
 ## System dependencies
 
