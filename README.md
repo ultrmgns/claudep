@@ -1,6 +1,6 @@
 # claudep
 
-Claude Private Edition with automatic document-to-markdown conversion.
+Claude Private Edition with automatic document-to-markdown conversion. This is specialized for work with a very very large number of documents that contain text data (no graphs). In my testing, it's twice as fast and costs magnitudes less for hundreds+ small document ingestion (payslips, invoices, support tickets, compliance forms, receipts). Please read bellow.
 
 No telemetry. Token-efficient document ingestion. Drop-in replacement for `claude`.
 
