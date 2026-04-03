@@ -1,6 +1,6 @@
 # claudep
 
-Claude Private Edition with automatic document-to-markdown conversion. This is specialized for work with a very very large number of documents that contain text data (no graphs). In my testing, it's twice as fast and costs magnitudes less for hundreds+ small document ingestion (payslips, invoices, support tickets, compliance forms, receipts). Please read bellow.
+Claude Private Edition with automatic document-to-markdown conversion. This is specialized for work with a very very large number of documents that contain text data (no graphs). In my testing, it's twice as fast and costs magnitudes less for hundreds+ small document ingestion (payslips, invoices, support tickets, compliance forms, receipts). Please read bellow, the tests will show why it's amazing for small documents and why I implemented the threshold for number of pages.
 
 No telemetry. Token-efficient document ingestion. Drop-in replacement for `claude`.
 
@@ -123,6 +123,8 @@ Tested 2026-04-03 against `claude-private` (no conversion). Same prompt, same al
 | GDPR_DOC_2.7.pdf (2 pages) | 214 KB | 6.4 KB | **33.8x** smaller |
 | openclaw disaster (19 pages) | 6.3 MB | 232 KB | **27.5x** smaller |
 | openclaw-viability-report.docx | 18 KB | 19 KB | ~1x (small doc, mostly text) |
+
+![scr22](https://github.com/user-attachments/assets/83676a62-4974-4920-b45d-808cd71985eb)
 
 ## System dependencies
 
